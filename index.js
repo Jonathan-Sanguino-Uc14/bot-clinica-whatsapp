@@ -39,37 +39,39 @@ async function iniciarBot() {
     version,
     auth:   state,
     logger: pino({ level: "silent" }), // Silencia logs internos
-    printQRInTerminal: false,           // Muestra QR en consola
+    printQRInTerminal: true,           // Muestra QR en consola
   });
 
   // ── Guardar credenciales cuando se actualicen ──
   sock.ev.on("creds.update", saveCreds);
 
   // ── Manejar conexión / desconexión ──
-  sock.ev.on("connection.update", ({ connection, lastDisconnect, qr }) => {
+  sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
 
-    if (qr) {
-  console.log("QR CODE BASE64:", qr);
-}
+  if (qr) {
+    // Generar QR visual en terminal manualmente
+    qrcode.generate(qr, { small: true });
+    console.log("📱 Escanea este QR con WhatsApp");
+  }
 
-   if (connection === "open") {
-  console.log("✅ Bot conectado a WhatsApp!");
-  console.log("💬 Esperando mensajes...\n");
-  iniciarRecordatorios(sock); // ← agregar esta línea
-}
+  if (connection === "open") {
+    console.log("✅ Bot conectado a WhatsApp!");
+    console.log("💬 Esperando mensajes...\n");
+    iniciarRecordatorios(sock);
+  }
 
-    if (connection === "close") {
-      const debeReconectar =
-        new Boom(lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+  if (connection === "close") {
+    const debeReconectar =
+      new Boom(lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
 
-      if (debeReconectar) {
-        console.log("🔄 Reconectando...");
-        iniciarBot(); // Reintentar conexión automáticamente
-      } else {
-        console.log("🔴 Sesión cerrada. Borra la carpeta 'sesion_whatsapp' y vuelve a correr.");
-      }
+    if (debeReconectar) {
+      console.log("🔄 Reconectando...");
+      iniciarBot();
+    } else {
+      console.log("🔴 Sesión cerrada.");
     }
-  });
+  }
+});
 
   // ── Escuchar mensajes entrantes ──
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
