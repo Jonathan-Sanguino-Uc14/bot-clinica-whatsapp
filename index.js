@@ -39,7 +39,7 @@ async function iniciarBot() {
     version,
     auth:   state,
     logger: pino({ level: "silent" }), // Silencia logs internos
-    printQRInTerminal: true,           // Muestra QR en consola
+    printQRInTerminal: false,           // Muestra QR en consola
   });
 
   // ── Guardar credenciales cuando se actualicen ──
@@ -49,9 +49,8 @@ async function iniciarBot() {
   sock.ev.on("connection.update", ({ connection, lastDisconnect, qr }) => {
 
     if (qr) {
-      console.log("\n📱 Escanea este QR con tu WhatsApp:\n");
-      qrcode.generate(qr, { small: true });
-    }
+  console.log("QR CODE BASE64:", qr);
+}
 
    if (connection === "open") {
   console.log("✅ Bot conectado a WhatsApp!");
