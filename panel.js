@@ -14,7 +14,7 @@ const PASSWORD = process.env.PANEL_PASSWORD || "clinica123";
 
 // ── Middleware de autenticación básica ──
 function auth(req, res, next) {
-  const pass = req.query.pass || req.body.pass;
+  const pass = (req.query && req.query.pass) || (req.body && req.body.pass);
   if (pass !== PASSWORD) {
     return res.send(`
       <html>
