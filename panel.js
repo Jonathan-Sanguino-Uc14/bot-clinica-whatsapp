@@ -8,6 +8,9 @@ const {
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.get("/", (req, res) => {
+  res.redirect("/panel");
+});
 
 // ── Contraseña simple para proteger el panel ──
 const PASSWORD = process.env.PANEL_PASSWORD || "clinica123";
