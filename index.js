@@ -11,6 +11,12 @@ const qrcode             = require("qrcode-terminal");
 const pino               = require("pino");
 const { procesarMensaje } = require("./bot");
 const { inicializarDB, getCitasPendientesRecordatorio, marcarRecordatorioEnviado } = require("./db");
+const { app } = require("./panel");
+
+// Dentro del servidor keepalive que ya tienes, reemplázalo por:
+app.listen(process.env.PORT || 3000, () => {
+  console.log("🌐 Panel activo en /panel");
+});
 function iniciarRecordatorios(sock) {
   setInterval(async () => {
     const citas = await getCitasPendientesRecordatorio();

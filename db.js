@@ -119,7 +119,46 @@ async function deleteSesion(telefono) {
     [telefono]
   );
 }
+async function getCitasHoy() {
+  const diaSemana = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"][new Date().getDay()];
+  const result = await pool.query(
+    `SELECT * FROM citas WHERE dia = $1 ORDER BY hora ASC`,
+    [diaSemana]
+  );
+  return result.rows;
+}
 
+async function getAllCitas() {
+  const result = await pool.query(
+    `SELECT * FROM citas ORDER BY creado_en DESC`
+  );
+  return result.rows;
+}
+
+async function getAllClientes() {
+  const result = await pool.query(
+    `SELECT * FROM clientes ORDER BY ultima_cita DESC`
+  );
+  return result.rows;
+}
+
+async function cancelarCitaById(id) {
+  await pool.query(
+    `UPDATE citas SET estado = 'cancelada' WHERE id = $1`, [id]
+  );
+}
+
+async function getEstadisticas() {
+  const result = await pool.query(`
+    SELECT
+      COUNT(*) FILTER (WHERE estado = 'confirmada') as total_citas,
+      COUNT(*) FILTER (WHERE dia = TO_CHAR(NOW(), 'Day') AND estado = 'confirmada') as citas_hoy,
+      COUNT(*) FILTER (WHERE creado_en >= NOW() - INTERVAL '7 days') as citas_semana,
+      (SELECT COUNT(*) FROM clientes) as total_clientes
+    FROM citas
+  `);
+  return result.rows[0];
+}
 module.exports = {
   inicializarDB,
   guardarCita,
@@ -132,4 +171,9 @@ module.exports = {
   deleteSesion,
   getCliente,      // ← nuevo
   upsertCliente, 
+  getCitasHoy,
+getAllCitas,
+getAllClientes,
+cancelarCitaById,
+getEstadisticas,
 };
