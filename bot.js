@@ -1,12 +1,17 @@
-// bot.js — Versión con IA integrada
+// bot.js — Versión con IA integrada y mejorada
 const { CLINICA, HORARIOS } = require("./datos");
-const { guardarCita, getCita, cancelarCita, getSesion, setSesion, deleteSesion } = require("./db");
+const { guardarCita, getCita, cancelarCita } = require("./db");
 const { procesarConIA, limpiarHistorial } = require("./ia");
+
+const conversacionesCerradas = new Set();
 
 // ============================================================
 // FUNCIÓN PRINCIPAL
 // ============================================================
 async function procesarMensaje(telefono, texto, sock) {
+  // Si la conversación fue cerrada recientemente, ignorar
+  if (conversacionesCerradas.has(telefono)) return;
+
   const msg = texto.trim().toLowerCase();
 
   // Comando para ver cita actual
@@ -29,16 +34,20 @@ async function procesarMensaje(telefono, texto, sock) {
   // Obtener cita actual del paciente para contexto
   const citaActual = await getCita(telefono);
 
+  // Callback que se ejecuta cuando el usuario está inactivo
+  const onInactivo = async (tel, mensaje) => {
+    await enviar(sock, tel, mensaje);
+  };
+
   // Enviar a la IA
   const { texto: respuestaIA, accion } = await procesarConIA(
-    telefono, texto, HORARIOS, citaActual
+    telefono, texto, HORARIOS, citaActual, onInactivo
   );
 
   // ── Procesar acción si la IA detectó una ──
   if (accion) {
 
     if (accion.accion === "confirmar") {
-      // Guardar cita en Supabase
       await guardarCita(telefono, {
         nombre: accion.nombre,
         dia:    accion.dia,
@@ -75,7 +84,25 @@ async function procesarMensaje(telefono, texto, sock) {
           `📆 ${cita.dia} a las ${cita.hora}\n` +
           `🩺 ${cita.motivo}`
         );
+      } else {
+        return enviar(sock, telefono,
+          `No tienes citas reservadas. Escríbeme para agendar una 😊`
+        );
       }
+    }
+
+    if (accion.accion === "salir") {
+      limpiarHistorial(telefono);
+      conversacionesCerradas.add(telefono);
+
+      // Después de 30 segundos puede volver a escribir
+      setTimeout(() => {
+        conversacionesCerradas.delete(telefono);
+      }, 30 * 1000);
+
+      return enviar(sock, telefono,
+        `¡Hasta pronto! 👋 Escríbeme cuando necesites agendar una cita 😊`
+      );
     }
   }
 

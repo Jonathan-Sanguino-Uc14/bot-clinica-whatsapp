@@ -1,115 +1,152 @@
-// ia.js — Maneja toda la inteligencia artificial
+// ia.js
 require("dotenv").config();
 const Groq = require("groq-sdk");
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Historial de conversación por usuario
 const historiales = {};
+const temporizadores = {}; // Para detectar inactividad
 
 // ============================================================
-// PROMPT DEL SISTEMA — Le dice a la IA cómo comportarse
+// SYSTEM PROMPT MEJORADO
 // ============================================================
 function getSystemPrompt(horarios, citaActual) {
   const diasDisponibles = Object.values(horarios)
     .map(h => `${h.dia}: ${h.horas.join(", ")}`)
     .join("\n");
 
-  return `Eres un asistente virtual amable y profesional de la Clínica Dr. García.
-Tu trabajo es ayudar a los pacientes a reservar citas médicas.
+  return `Eres un asistente virtual amable y natural de la Clínica Dr. García. Tu nombre es "Clini".
 
 HORARIOS DISPONIBLES:
 ${diasDisponibles}
 
 ${citaActual ? `CITA ACTUAL DEL PACIENTE: ${JSON.stringify(citaActual)}` : "El paciente no tiene cita activa."}
 
-INSTRUCCIONES:
-- Sé amable, claro y conciso
-- Guía al paciente para obtener: nombre, día, hora y motivo de consulta
-- Cuando tengas TODOS los datos responde EXACTAMENTE en este formato JSON y nada más:
-  {"accion":"confirmar","nombre":"...","dia":"...","hora":"...","motivo":"..."}
-- Si el paciente quiere cancelar su cita responde: {"accion":"cancelar"}
-- Si el paciente quiere ver su cita responde: {"accion":"ver_cita"}
-- Si falta algún dato, pregúntalo de forma natural
-- Si el paciente escribe un día u hora que no está disponible, indícaselo amablemente
-- Responde siempre en español
-- Nunca inventes horarios que no están en la lista`;
+REGLAS DE CONVERSACIÓN:
+- Sé cálido, natural y conciso. Como un recepcionista amable, no un robot.
+- NUNCA repitas información que ya mencionaste antes en la conversación.
+- Haz UNA sola pregunta a la vez, nunca varias juntas.
+- Si el usuario se equivoca o escribe algo inválido, corrígelo amablemente sin regañar.
+- Si el usuario escribe "salir", "adios", "bye", "cancelar" o similar responde exactamente: {"accion":"salir"}
+- Si el usuario parece confundido o frustrado, sé más paciente y ofrece opciones claras.
+- Nunca inventes horarios que no están en la lista.
+- Responde siempre en español, máximo 3 líneas por mensaje.
+
+CUANDO TENGAS TODOS LOS DATOS (nombre, día, hora, motivo) responde EXACTAMENTE:
+{"accion":"confirmar","nombre":"...","dia":"...","hora":"...","motivo":"..."}
+
+OTRAS ACCIONES:
+- Usuario quiere cancelar su cita: {"accion":"cancelar"}
+- Usuario quiere ver su cita: {"accion":"ver_cita"}
+- Usuario quiere salir/terminar: {"accion":"salir"}
+
+MANEJO DE ERRORES:
+- Si pide un día no disponible: menciona solo los días disponibles sin listarlos todos de nuevo.
+- Si pide una hora no disponible: menciona solo las horas libres de ese día.
+- Si escribe algo sin sentido: pregunta amablemente qué necesita.`;
 }
 
 // ============================================================
-// FUNCIÓN PRINCIPAL — Procesa mensaje con IA
+// FUNCIÓN PRINCIPAL
 // ============================================================
-async function procesarConIA(telefono, mensaje, horarios, citaActual) {
-  // Iniciar historial si no existe
+async function procesarConIA(telefono, mensaje, horarios, citaActual, onInactivo) {
   if (!historiales[telefono]) {
     historiales[telefono] = [];
   }
 
-  // Agregar mensaje del usuario al historial
-  historiales[telefono].push({
-    role: "user",
-    content: mensaje
-  });
+  historiales[telefono].push({ role: "user", content: mensaje });
 
-  // Limitar historial a últimos 10 mensajes para no gastar tokens
+  // Limitar historial a últimos 10 mensajes
   if (historiales[telefono].length > 10) {
     historiales[telefono] = historiales[telefono].slice(-10);
   }
 
+  // Reiniciar temporizador de inactividad
+  reiniciarTemporizador(telefono, onInactivo);
+
   try {
     const response = await groq.chat.completions.create({
-model: "llama-3.3-70b-versatile",      messages: [
-        {
-          role: "system",
-          content: getSystemPrompt(horarios, citaActual)
-        },
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: getSystemPrompt(horarios, citaActual) },
         ...historiales[telefono]
       ],
-      temperature: 0.7,
-      max_tokens: 500,
+      temperature: 0.6, // Menos temperatura = más consistente
+      max_tokens: 300,  // Respuestas más cortas
     });
 
     const respuesta = response.choices[0].message.content;
 
-    // Guardar respuesta en historial
-    historiales[telefono].push({
-      role: "assistant",
-      content: respuesta
-    });
+    historiales[telefono].push({ role: "assistant", content: respuesta });
 
-    // Intentar detectar si la IA devolvió un JSON con acción
     const accion = extraerAccion(respuesta);
+
+    // Si terminó la conversación, limpiar temporizador
+    if (accion && ["confirmar", "cancelar", "salir"].includes(accion.accion)) {
+      limpiarTemporizador(telefono);
+    }
 
     return { texto: respuesta, accion };
 
   } catch (err) {
     console.error("Error con Groq:", err.message);
     return {
-      texto: "Lo siento, tuve un problema. ¿Puedes repetir tu mensaje?",
+      texto: "Lo siento, tuve un problema técnico. ¿Puedes repetir tu mensaje?",
       accion: null
     };
   }
 }
 
 // ============================================================
-// DETECTAR SI LA IA DEVOLVIÓ UN JSON DE ACCIÓN
+// TEMPORIZADOR DE INACTIVIDAD
+// ============================================================
+function reiniciarTemporizador(telefono, onInactivo) {
+  limpiarTemporizador(telefono);
+
+  // Si no responde en 5 minutos, preguntar si sigue ahí
+  temporizadores[telefono] = setTimeout(async () => {
+    if (onInactivo) {
+      await onInactivo(telefono,
+        "👋 ¿Sigues ahí? Si necesitas ayuda para agendar tu cita escríbeme, si no, ¡hasta pronto! 😊"
+      );
+    }
+
+    // Si después de otros 5 minutos sigue sin responder, limpiar sesión
+    temporizadores[telefono + "_final"] = setTimeout(() => {
+      limpiarHistorial(telefono);
+      console.log(`🕐 Sesión cerrada por inactividad: ${telefono}`);
+    }, 5 * 60 * 1000);
+
+  }, 5 * 60 * 1000); // 5 minutos
+}
+
+function limpiarTemporizador(telefono) {
+  if (temporizadores[telefono]) {
+    clearTimeout(temporizadores[telefono]);
+    delete temporizadores[telefono];
+  }
+  if (temporizadores[telefono + "_final"]) {
+    clearTimeout(temporizadores[telefono + "_final"]);
+    delete temporizadores[telefono + "_final"];
+  }
+}
+
+// ============================================================
+// DETECTAR ACCIÓN EN RESPUESTA DE LA IA
 // ============================================================
 function extraerAccion(texto) {
   try {
-    // Buscar JSON dentro del texto
     const match = texto.match(/\{.*\}/s);
-    if (match) {
-      return JSON.parse(match[0]);
-    }
+    if (match) return JSON.parse(match[0]);
   } catch {
-    // No era JSON, respuesta normal
+    // Respuesta normal de texto
   }
   return null;
 }
 
-// Limpiar historial cuando termina la conversación
 function limpiarHistorial(telefono) {
   delete historiales[telefono];
+  limpiarTemporizador(telefono);
 }
 
 module.exports = { procesarConIA, limpiarHistorial };
