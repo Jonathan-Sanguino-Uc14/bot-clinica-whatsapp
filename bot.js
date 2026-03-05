@@ -1,6 +1,6 @@
 // bot.js — Versión con IA integrada y mejorada
 const { CLINICA, HORARIOS } = require("./datos");
-const { guardarCita, getCita, cancelarCita } = require("./db");
+const { guardarCita, getCita, cancelarCita, getCliente, upsertCliente } = require("./db");
 const { procesarConIA, limpiarHistorial } = require("./ia");
 
 const conversacionesCerradas = new Set();
@@ -11,7 +11,32 @@ const conversacionesCerradas = new Set();
 async function procesarMensaje(telefono, texto, sock) {
   // Si la conversación fue cerrada recientemente, ignorar
   if (conversacionesCerradas.has(telefono)) return;
+const citaActual = await getCita(telefono);
+  const cliente    = await getCliente(telefono); // ← nuevo
 
+  const onInactivo = async (tel, mensaje) => {
+    await enviar(sock, tel, mensaje);
+  };
+
+  const { texto: respuestaIA, accion } = await procesarConIA(
+    telefono, texto, HORARIOS, citaActual, onInactivo, cliente // ← pasar cliente
+  );
+
+  if (accion) {
+    if (accion.accion === "confirmar") {
+      await guardarCita(telefono, {
+        nombre: accion.nombre,
+        dia:    accion.dia,
+        hora:   accion.hora,
+        motivo: accion.motivo
+      });
+
+      // Guardar/actualizar perfil del cliente ← nuevo
+      await upsertCliente(telefono, {
+        nombre: accion.nombre,
+        dia:    accion.dia,
+        hora:   accion.hora
+      });
   const msg = texto.trim().toLowerCase();
 
   // Comando para ver cita actual
@@ -115,4 +140,4 @@ async function enviar(sock, telefono, texto) {
   await sock.sendMessage(telefono, { text: texto });
 }
 
-module.exports = { procesarMensaje };
+module.exports = { procesarMensaje };}}

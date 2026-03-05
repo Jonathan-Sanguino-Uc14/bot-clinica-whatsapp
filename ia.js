@@ -10,10 +10,24 @@ const temporizadores = {}; // Para detectar inactividad
 // ============================================================
 // SYSTEM PROMPT MEJORADO
 // ============================================================
-function getSystemPrompt(horarios, citaActual) {
+function getSystemPrompt(horarios, citaActual, cliente) {
   const diasDisponibles = Object.values(horarios)
     .map(h => `${h.dia}: ${h.horas.join(", ")}`)
     .join("\n");
+
+  // Contexto personalizado si el cliente ya visitó antes
+  let contextoCliente = "";
+  if (cliente) {
+    contextoCliente = `
+INFORMACIÓN DEL CLIENTE:
+- Nombre: ${cliente.nombre || "desconocido"}
+- Ha agendado ${cliente.total_citas} cita(s) antes
+- Día preferido: ${cliente.dia_preferido || "no registrado"}
+- Hora preferida: ${cliente.hora_preferida || "no registrada"}
+- Última cita: ${cliente.ultima_cita ? new Date(cliente.ultima_cita).toLocaleDateString("es-MX") : "ninguna"}
+
+Salúdalo por su nombre si lo conoces y sugiere su día y hora preferidos si los tienes.`;
+  }
 
   return `Eres un asistente virtual amable y natural de la Clínica Dr. García. Tu nombre es "Clini".
 
@@ -21,6 +35,8 @@ HORARIOS DISPONIBLES:
 ${diasDisponibles}
 
 ${citaActual ? `CITA ACTUAL DEL PACIENTE: ${JSON.stringify(citaActual)}` : "El paciente no tiene cita activa."}
+
+${contextoCliente}
 
 REGLAS DE CONVERSACIÓN:
 - Sé cálido, natural y conciso. Como un recepcionista amable, no un robot.
@@ -38,22 +54,25 @@ CUANDO TENGAS TODOS LOS DATOS (nombre, día, hora, motivo) responde EXACTAMENTE:
 OTRAS ACCIONES:
 - Usuario quiere cancelar su cita: {"accion":"cancelar"}
 - Usuario quiere ver su cita: {"accion":"ver_cita"}
-- Usuario quiere salir/terminar: {"accion":"salir"}
-
-MANEJO DE ERRORES:
-- Si pide un día no disponible: menciona solo los días disponibles sin listarlos todos de nuevo.
-- Si pide una hora no disponible: menciona solo las horas libres de ese día.
-- Si escribe algo sin sentido: pregunta amablemente qué necesita.`;
+- Usuario quiere salir/terminar: {"accion":"salir"}`;
 }
 
 // ============================================================
 // FUNCIÓN PRINCIPAL
 // ============================================================
-async function procesarConIA(telefono, mensaje, horarios, citaActual, onInactivo) {
+async function procesarConIA(telefono, mensaje, horarios, citaActual, onInactivo,cliente) {
   if (!historiales[telefono]) {
     historiales[telefono] = [];
   }
-
+const response = await groq.chat.completions.create({
+    model: "llama-3.3-70b-versatile",
+    messages: [
+      { role: "system", content: getSystemPrompt(horarios, citaActual, cliente) },
+      ...historiales[telefono]
+    ],
+    temperature: 0.6,
+    max_tokens: 300,
+  });
   historiales[telefono].push({ role: "user", content: mensaje });
 
   // Limitar historial a últimos 10 mensajes

@@ -9,7 +9,38 @@ const pool = new Pool({
     sslmode: 'verify-full'
   },
 });
+// Obtener perfil del cliente
+async function getCliente(telefono) {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM clientes WHERE telefono = $1`,
+      [telefono]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("DB error en getCliente:", err.message);
+    return null;
+  }
+}
 
+// Crear o actualizar perfil del cliente
+async function upsertCliente(telefono, datos) {
+  try {
+    await pool.query(
+      `INSERT INTO clientes (telefono, nombre, dia_preferido, hora_preferida, total_citas, ultima_cita)
+       VALUES ($1, $2, $3, $4, 1, NOW())
+       ON CONFLICT (telefono) DO UPDATE SET
+         nombre         = COALESCE($2, clientes.nombre),
+         dia_preferido  = COALESCE($3, clientes.dia_preferido),
+         hora_preferida = COALESCE($4, clientes.hora_preferida),
+         total_citas    = clientes.total_citas + 1,
+         ultima_cita    = NOW()`,
+      [telefono, datos.nombre, datos.dia, datos.hora]
+    );
+  } catch (err) {
+    console.error("DB error en upsertCliente:", err.message);
+  }
+}
 async function inicializarDB() {
   try {
     await pool.query("SELECT NOW()");
@@ -99,4 +130,6 @@ module.exports = {
   getSesion,
   setSesion,
   deleteSesion,
+  getCliente,      // ← nuevo
+  upsertCliente, 
 };
