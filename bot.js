@@ -5,38 +5,10 @@ const { procesarConIA, limpiarHistorial } = require("./ia");
 
 const conversacionesCerradas = new Set();
 
-// ============================================================
-// FUNCIÓN PRINCIPAL
-// ============================================================
 async function procesarMensaje(telefono, texto, sock) {
   // Si la conversación fue cerrada recientemente, ignorar
   if (conversacionesCerradas.has(telefono)) return;
-const citaActual = await getCita(telefono);
-  const cliente    = await getCliente(telefono); // ← nuevo
 
-  const onInactivo = async (tel, mensaje) => {
-    await enviar(sock, tel, mensaje);
-  };
-
-  const { texto: respuestaIA, accion } = await procesarConIA(
-    telefono, texto, HORARIOS, citaActual, onInactivo, cliente // ← pasar cliente
-  );
-
-  if (accion) {
-    if (accion.accion === "confirmar") {
-      await guardarCita(telefono, {
-        nombre: accion.nombre,
-        dia:    accion.dia,
-        hora:   accion.hora,
-        motivo: accion.motivo
-      });
-
-      // Guardar/actualizar perfil del cliente ← nuevo
-      await upsertCliente(telefono, {
-        nombre: accion.nombre,
-        dia:    accion.dia,
-        hora:   accion.hora
-      });
   const msg = texto.trim().toLowerCase();
 
   // Comando para ver cita actual
@@ -56,20 +28,17 @@ const citaActual = await getCita(telefono);
     }
   }
 
-  // Obtener cita actual del paciente para contexto
   const citaActual = await getCita(telefono);
+  const cliente    = await getCliente(telefono);
 
-  // Callback que se ejecuta cuando el usuario está inactivo
   const onInactivo = async (tel, mensaje) => {
     await enviar(sock, tel, mensaje);
   };
 
-  // Enviar a la IA
   const { texto: respuestaIA, accion } = await procesarConIA(
-    telefono, texto, HORARIOS, citaActual, onInactivo
+    telefono, texto, HORARIOS, citaActual, onInactivo, cliente
   );
 
-  // ── Procesar acción si la IA detectó una ──
   if (accion) {
 
     if (accion.accion === "confirmar") {
@@ -78,6 +47,12 @@ const citaActual = await getCita(telefono);
         dia:    accion.dia,
         hora:   accion.hora,
         motivo: accion.motivo
+      });
+
+      await upsertCliente(telefono, {
+        nombre: accion.nombre,
+        dia:    accion.dia,
+        hora:   accion.hora
       });
 
       limpiarHistorial(telefono);
@@ -120,7 +95,6 @@ const citaActual = await getCita(telefono);
       limpiarHistorial(telefono);
       conversacionesCerradas.add(telefono);
 
-      // Después de 30 segundos puede volver a escribir
       setTimeout(() => {
         conversacionesCerradas.delete(telefono);
       }, 30 * 1000);
@@ -131,13 +105,11 @@ const citaActual = await getCita(telefono);
     }
   }
 
-  // Respuesta normal de la IA
   await enviar(sock, telefono, respuestaIA);
 }
 
-// ── Helper para enviar mensajes ──
 async function enviar(sock, telefono, texto) {
   await sock.sendMessage(telefono, { text: texto });
 }
 
-module.exports = { procesarMensaje };}}
+module.exports = { procesarMensaje };
